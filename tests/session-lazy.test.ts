@@ -1262,6 +1262,122 @@ describe("serve cold recovery verification regressions", () => {
     await expect(ensureRealSession(server, "alias")).rejects.toThrow(/workspace/i);
     expect(server.resolveSid("alias")).toBeUndefined();
   });
+  it("rejects a ready cold alias when legacy listing provides no workspace proof", async () => {
+    const { server, calls } = setup(undefined, "ready");
+    const original = server.backend!.request.bind(server.backend!);
+    server.backend!.request = async (id, method, params, timeout) => {
+      if (method === "session/list" && (params as { sessionIds?: unknown }).sessionIds)
+        return { id, error: { code: -32600, message: "Unrecognized key: sessionIds" } };
+      return original(id, method, params, timeout);
+    };
+    await expect(ensureRealSession(server, "alias")).rejects.toThrow(/workspace/i);
+    expect(server.resolveSid("alias")).toBeUndefined();
+    expect(calls.some((c) => c.method === "session/resume")).toBe(false);
+  });
+  it("rejects missing stored workspace before resume even if a legacy resume has no workspace", async () => {
+    const { server, calls } = setup(undefined, "unloaded");
+    const original = server.backend!.request.bind(server.backend!);
+    server.backend!.request = async (id, method, params, timeout) => {
+      if (method === "session/list" && (params as { sessionIds?: unknown }).sessionIds)
+        return { id, error: { code: -32600, message: "Unrecognized key: sessionIds" } };
+      return original(id, method, params, timeout);
+    };
+    const cx = { notify: async () => {} } as unknown as acp.AgentContext;
+    await expect(
+      resumeSession(server, { sessionId: "alias" } as acp.ResumeSessionRequest, cx),
+    ).rejects.toThrow(/workspace/i);
+    expect(calls.some((c) => c.method === "session/resume")).toBe(false);
+    expect(server.resolveSid("alias")).toBeUndefined();
+  });
+  it("does not classify an unrelated unrecognized key as sessionIds unsupported", async () => {
+    const { server } = setup({ workspacePath: process.cwd() });
+    server.backend!.request = async (id, method) =>
+      method === "session/list"
+        ? { id, error: { code: -32600, message: "Unrecognized key: workspace" } }
+        : { id, result: { state: "ready" } };
+    await expect(ensureRealSession(server, "alias")).rejects.toThrow(/workspace/i);
+    expect(server.sessionIdsQueryRejected).not.toBe(true);
+    expect(server.resolveSid("alias")).toBeUndefined();
+  });
+  it("rechecks stored workspace when a modern resume omits it", async () => {
+    const { server } = setup(undefined, "unloaded");
+    let lists = 0;
+    const original = server.backend!.request.bind(server.backend!);
+    server.backend!.request = async (id, method, params, timeout) => {
+      if (method === "session/list") {
+        lists++;
+        return {
+          id,
+          result: {
+            sessions:
+              lists === 1
+                ? [{ sessionId: "stored", workspace: { workspacePath: process.cwd() } }]
+                : [],
+          },
+        };
+      }
+      return original(id, method, params, timeout);
+    };
+    const cx = { notify: async () => {} } as unknown as acp.AgentContext;
+    await expect(
+      resumeSession(server, { sessionId: "alias" } as acp.ResumeSessionRequest, cx),
+    ).rejects.toThrow(/workspace/i);
+    expect(lists).toBe(2);
+    expect(server.resolveSid("alias")).toBeUndefined();
+  });
+  it("fails closed for an unverified legacy list even when it claims the same workspace", async () => {
+    const server = new ZcodeAcpServer({ serveMode: true });
+    mockStore.set("alias", { cwd: process.cwd(), zcodeSid: "stored", createdAt: 1 });
+    const { backend, calls } = fakeBackend([], [], process.cwd());
+    const request = backend.request.bind(backend);
+    backend.request = async (id, method, params, timeout) => {
+      if (method === "session/list" && (params as { sessionIds?: unknown }).sessionIds) {
+        return { id, error: { code: -32600, message: "Unrecognized key: sessionIds" } };
+      }
+      if (method === "session/list")
+        return {
+          id,
+          result: {
+            sessions: [{ sessionId: "stored", workspace: { workspacePath: process.cwd() } }],
+          },
+        };
+      return request(id, method, params, timeout);
+    };
+    server.backend = backend;
+    const cx = { notify: async () => {} } as unknown as acp.AgentContext;
+    // The legacy list semantics are unverified, so even a claimed match is not proof.
+    await expect(
+      resumeSession(server, { sessionId: "alias" } as acp.ResumeSessionRequest, cx),
+    ).rejects.toThrow(/workspace/i);
+    expect(calls.some((c) => c.method === "session/resume")).toBe(false);
+    expect(server.sessionIdsQueryRejected).toBe(true);
+  });
+  it("refuses a foreign stored workspace before legacy resume", async () => {
+    const server = new ZcodeAcpServer({ serveMode: true });
+    mockStore.set("alias", { cwd: process.cwd(), zcodeSid: "stored", createdAt: 1 });
+    const { backend, calls } = fakeBackend([], [], "/tmp/foreign-ws");
+    const request = backend.request.bind(backend);
+    backend.request = async (id, method, params, timeout) => {
+      if (method === "session/list" && (params as { sessionIds?: unknown }).sessionIds) {
+        return { id, error: { code: -32600, message: "Unrecognized key: sessionIds" } };
+      }
+      if (method === "session/list")
+        return {
+          id,
+          result: {
+            sessions: [{ sessionId: "stored", workspace: { workspacePath: "/tmp/foreign-ws" } }],
+          },
+        };
+      return request(id, method, params, timeout);
+    };
+    server.backend = backend;
+    const cx = { notify: async () => {} } as unknown as acp.AgentContext;
+    // A foreign record must be rejected before resume or any history read.
+    await expect(
+      resumeSession(server, { sessionId: "alias" } as acp.ResumeSessionRequest, cx),
+    ).rejects.toThrow(/workspace/i);
+    expect(calls.some((c) => c.method === "session/resume")).toBe(false);
+  });
 });
 
 it("pushes real model catalog after lazy first prompt materializes", async () => {

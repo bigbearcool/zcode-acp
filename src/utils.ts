@@ -11,6 +11,13 @@ import process from "node:process";
 import { appendDiary } from "./crash-guards.js";
 import { debugEnabled } from "./config/settings.js";
 
+/** A strict schema rejection must name the queried field, not another key. */
+export function rejectsSessionIdsKey(message: string | undefined): boolean {
+  return /unrecognized key(?:\(s\)|s)?(?: in object)?\s*:\s*["'`]?sessionIds["'`]?(?:\s*$|\s*\n)/i.test(
+    message ?? "",
+  );
+}
+
 /** ACP protocol version this server speaks. */
 export const PROTOCOL_VERSION = 1;
 

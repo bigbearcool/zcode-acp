@@ -159,7 +159,7 @@ describe("per-connection martty gating (ADR-0021)", () => {
     expect(server.marttyConnectionRoots.has(appRoot)).toBe(false);
     // The app's response must not carry the spec-external quota pseudo-option.
     expect(resp.configOptions.some((o) => o.id === "quota")).toBe(false);
-    expect(resp.configOptions.some((o) => o.id === "model")).toBe(true);
+    expect(resp.configOptions.some((o) => o.id === "model")).toBe(false);
   });
 
   it("session/new from the martty connection keeps the quota option", async () => {

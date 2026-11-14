@@ -359,6 +359,12 @@ describe("formatMcpServers", () => {
 describe("/mcp slash command", () => {
   const SID = "sess_test";
 
+  beforeEach(() => {
+    // Exercise local discovery when backend status is unavailable, without spawning a real backend.
+    vi.spyOn(ZcodeAcpServer.prototype, "ensureBackend").mockRejectedValue(new Error("offline"));
+  });
+  afterEach(() => vi.restoreAllMocks());
+
   /** Mock AgentContext that records notify calls. */
   function mockContext(): { cx: acp.AgentContext; sent: unknown[] } {
     const sent: unknown[] = [];

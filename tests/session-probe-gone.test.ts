@@ -181,6 +181,16 @@ describe("probeGoneBackendSessions — tombstone retirement oracle", () => {
     expect(calls.length - before).toBe(0);
   });
 
+  it("does not pin sessionIds rejection for an unrelated unrecognized key", async () => {
+    const { backend } = makeBackend(() => ({
+      error: { code: -32600, message: "Unrecognized key: workspace" },
+    }));
+    const server = new ZcodeAcpServer();
+    server.backend = backend;
+    expect((await server.probeGoneBackendSessions(["a"])).size).toBe(0);
+    expect(server.sessionIdsQueryRejected).toBeNull();
+  });
+
   it("resetBackendGeneration clears both pinned verdicts", async () => {
     const server = new ZcodeAcpServer();
     server.sessionIdsQueryRejected = true;
