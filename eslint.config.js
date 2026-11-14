@@ -14,6 +14,9 @@ export default [
       // Local codesearch/tgrep scratch (gitignored); its loose .mjs probes have
       // no node globals configured and would otherwise fail `pnpm lint`.
       "**/.tgrep/**",
+      // Redacted evidence artifacts, including standalone ACP probe scripts that
+      // are runnable tooling rather than package source.
+      "evidence/**",
       "*.config.js",
       "eslint.config.js",
     ],
